@@ -1,6 +1,6 @@
 # ktap
 
-A New Scripting Dynamic Tracing Tool For Linux  
+A New Scripting Dynamic Tracing Tool For Linux
 [www.ktap.org][homepage]
 
 ktap is a new scripting dynamic tracing tool for Linux,
@@ -128,7 +128,9 @@ More information can be found at [ktap homepage][homepage].
 
 10. FFI (Call kernel function from ktap script, need compile with FFI=1)
 
-        cdef("int printk(char *fmt, ...);")
+        cdef[[
+                int printk(char *fmt, ...);
+        ]]
 
         C.printk("This message is called from ktap ffi\n")
 
@@ -138,7 +140,7 @@ More examples can be found at [samples][samples_dir] directory.
 
 ## Mailing list
 
-ktap@freelists.org  
+ktap@freelists.org
 You can subscribe to ktap mailing list at link (subscribe before posting):
 http://www.freelists.org/list/ktap
 
@@ -148,7 +150,7 @@ http://www.freelists.org/list/ktap
 ktap is licensed under GPL v2
 
 Copyright (C) 2012-2013, Jovi Zhangwei <jovi.zhangwei@gmail.com>.
-All rights reserved.  
+All rights reserved.
 
 
 ## Contribution
