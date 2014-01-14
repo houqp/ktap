@@ -271,14 +271,14 @@ typedef struct ffi_state {
 typedef struct ktap_cdata {
 	CommonHeader;
 	csymbol_id id;
+	int allocated;
 	union {
 		uint64_t i;
 		struct {
 			void *addr;
 			int nmemb;	/* number of memory block */
-			int allocated;
 		} p;			/* pointer data */
-		void *st;		/* struct member data */
+		void *rec;		/* struct members or union data */
 	} u;
 } ktap_cdata;
 #endif

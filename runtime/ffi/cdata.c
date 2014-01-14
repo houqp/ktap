@@ -30,6 +30,7 @@ ktap_cdata *kp_cdata_new(ktap_state *ks, csymbol_id id)
 
 	cd = &kp_obj_newobject(ks, KTAP_TYPE_CDATA, sizeof(ktap_cdata), NULL)->cd;
 	cd_set_csym_id(cd, id);
+	cd_allocated(cd) = 0;
 
 	return cd;
 }
@@ -63,10 +64,11 @@ ktap_cdata *kp_cdata_new_ptr(ktap_state *ks, void *addr,
 
 void kp_cdata_free_ptr(ktap_state *ks, ktap_cdata *cd)
 {
-	if (cd_ptr_allocated(cd))
+	if (cd_ptr_allocated(cd) && cd_ptr(cd)) {
 		kp_free(ks, cd_ptr(cd));
-	cd_ptr(cd) = NULL;
-	cd_ptr_allocated(cd) = 0;
+		cd_ptr(cd) = NULL;
+		cd_ptr_allocated(cd) = 0;
+	}
 }
 
 ktap_cdata *kp_cdata_new_record(ktap_state *ks, void *val, csymbol_id id)
@@ -80,9 +82,10 @@ ktap_cdata *kp_cdata_new_record(ktap_state *ks, void *val, csymbol_id id)
 	if (val == NULL) {
 		/* TODO: free the space when exit the program unihorn(08.12.2013) */
 		size = csym_size(ks, id_to_csym(ks, id));
-		cd_struct(cd) = kp_zalloc(ks, size);
+		cd_record(cd) = kp_zalloc(ks, size);
+		cd_allocated(cd) = 1;
 	} else
-		cd_struct(cd) = val;
+		cd_record(cd) = val;
 
 	return cd;
 }
