@@ -49,6 +49,11 @@ static cp_csymbol_state *csym_state;
 	assert(ncs->type == t);					\
 } while (0)
 
+#define assert_stmb_type(stcs, n, t) do {			\
+	csymbol *ncs;						\
+	ncs = &cs_arr[csymst_mb_id(stcs, n)];	\
+	assert(ncs->type == t);					\
+} while (0)
 
 
 
@@ -309,6 +314,72 @@ int test_var_arg_function()
 	return 0;
 }
 
+int test_function_pointer()
+{
+	int idx;
+	csymbol *cs;
+	csymbol *dfcs;
+	csymbol_func *fcs;
+
+	ffi_parse_cdef("int *(*foo_ptr)(char bar);");
+
+	idx = lookup_csymbol_id_by_name("foo_ptr");
+	assert(idx >= 0);
+
+	cs = cp_id_to_csym(idx);
+	assert(cs);
+	assert(csym_type(cs) == FFI_PTR);
+
+	/* check function prototype for function pointer */
+	dfcs = cp_id_to_csym(csym_ptr_deref_id(cs));
+	assert(csym_type(dfcs) == FFI_FUNC);
+	fcs = csym_func(dfcs);
+
+	assert(fcs->arg_nr == 1);
+	assert_fret_type(fcs, FFI_PTR);
+	assert_farg_type(fcs, 0, FFI_INT8);
+
+	return 0;
+}
+
+int test_function_pointer_as_member()
+{
+	int idx;
+	csymbol *cs;
+	csymbol_struct *stcs;
+	csymbol *dfcs;
+	csymbol_func *fcs;
+
+	ffi_parse_cdef("struct func_st { char a; void (*foo)(int bar); };");
+
+	idx = lookup_csymbol_id_by_name("struct func_st");
+	assert(idx >= 0);
+
+	cs = cp_id_to_csym(idx);
+	assert(cs);
+	assert(cs->type == FFI_STRUCT);
+
+	stcs = csym_struct(cs);
+	assert(stcs->memb_nr == 2);
+
+	/* first member is char */
+	assert_stmb_type(stcs, 0, FFI_INT8);
+	/* second member is function pointer */
+	assert_stmb_type(stcs, 1, FFI_PTR);
+
+	/* check function prototype for function pointer */
+	dfcs = cp_id_to_csym(csym_ptr_deref_id(
+				cp_id_to_csym(csymst_mb_id(stcs, 1))));
+	assert(csym_type(dfcs) == FFI_FUNC);
+	fcs = csym_func(dfcs);
+
+	assert(fcs->arg_nr == 1);
+	assert_fret_type(fcs, FFI_VOID);
+	assert_farg_type(fcs, 0, FFI_INT32);
+
+	return 0;
+}
+
 int main (int argc, char *argv[])
 {
 	DO_TEST(func_sched_clock);
@@ -317,6 +388,7 @@ int main (int argc, char *argv[])
 	DO_TEST(func_time_to_tm);
 	DO_TEST(pointer_symbols);
 	DO_TEST(var_arg_function);
-
+	DO_TEST(function_pointer);
+	DO_TEST(function_pointer_as_member);
 	return 0;
 }
