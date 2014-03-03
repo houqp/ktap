@@ -1,7 +1,8 @@
 #include "../../include/ktap_types.h"
 #include "../../include/ktap_opcodes.h"
 #include "../ktapc.h"
-#include "../cparser.h"
+#include "cparser.h"
+#include "ctype_stack.h"
 
 
 /* for ktap vm */
@@ -11,41 +12,22 @@ cp_csymbol_state csym_state;
 #define cs_arr_size (csym_state.cs_arr_size)
 #define cs_arr (csym_state.cs_arr)
 
-csymbol *cp_id_to_csym(int id)
-{
-	return &cs_arr[id];
-}
-
-
-typedef struct cp_ctype_entry {
-	char name[MAX_TYPE_NAME_LEN];
-	struct cp_ctype ct;
-} cp_ctype_entry;
-
 #define DEFAULT_CTYPE_ARR_SIZE 100
 static int cte_nr;
 static int cte_arr_size;
 static cp_ctype_entry *cte_arr;
 
-
-/* stack to help maintain state during parsing */
-typedef struct cp_ctype_stack {
-	int size;
-	int top;
-	cp_ctype_entry *stack;
-} ctype_stack;
-
-
-static ctype_stack cts;
-
-#define ct_stack(id) (&(cts.stack[id]))
-#define ct_stack_ct(id) (&(cts.stack[id].ct))
-
-
-
 csymbol_id cp_ctype_reg_csymbol(csymbol *cs);
 csymbol_id ctype_lookup_csymbol_id(const char *name);
 
+
+csymbol *cp_id_to_csym(int id)
+{
+	if (id < 0)
+		return NULL;
+
+	return &cs_arr[id];
+}
 
 size_t ctype_size(const struct cp_ctype *ct)
 {
@@ -67,42 +49,9 @@ size_t ctype_size(const struct cp_ctype *ct)
 	}
 }
 
-#define MAX_STACK_SIZE 100
-int ctype_stack_grow(int size)
-{
-	struct cp_ctype_entry *new_st;
-
-	assert(cts.size + size < MAX_STACK_SIZE);
-
-	new_st = realloc(cts.stack, (cts.size+size)*sizeof(cp_ctype_entry));
-	if (new_st)
-		cts.stack = new_st;
-	else
-		return -1;
-
-	cts.size += size;
-
-	return size;
-}
-
-int ctype_stack_free_space()
-{
-	return cts.size - cts.top;
-}
-
-int ctype_stack_top()
-{
-	return cts.top;
-}
-
-void ctype_stack_reset(int top)
-{
-	cts.top = top;
-}
-
 /* This function should be called before you would fetch
  * ffi_cs_id from ctype */
-void cp_update_csym_in_ctype(struct cp_ctype *ct)
+void cp_update_csym_in_ctype(struct cp_ctype *ct, const char *name, int nlen)
 {
 	int i;
 	struct cp_ctype *nct;
@@ -132,21 +81,32 @@ void cp_update_csym_in_ctype(struct cp_ctype *ct)
 			/* pointer type already registered, reinstantiate ct */
 			ct->ffi_cs_id = cte_arr[i].ct.ffi_cs_id;
 		}
+	} else if (ct->type == FUNCTION_PTR_TYPE &&
+			csym_type(ct_ffi_cs(ct)) != FFI_PTR) {
+		/* if ctype->ffi_cs_id already points to a pointer type
+		 * we assume the function csym has already been generated
+		 *
+		 * also, we register the function pointer csymbol with name
+		 * if it's declared in global scope */
+		if (cp_ctstk_is_global_frame(cp_ctstk_prev_frame()))
+			ct->ffi_cs_id = cp_symbol_build_fptr(ct, name, nlen);
+		else
+			ct->ffi_cs_id = cp_symbol_build_fptr(ct, "", 0);
 	}
 }
 
 /* push ctype to stack, create new csymbol if needed */
 void cp_push_ctype_with_name(struct cp_ctype *ct, const char *name, int nlen)
 {
-	if (ctype_stack_free_space() < 1)
-		ctype_stack_grow(4);
+	cp_ctype_entry *top;
 
-	cp_update_csym_in_ctype(ct);
-	memset(ct_stack(cts.top), 0, sizeof(cp_ctype_entry));
-	ct_stack(cts.top)->ct = *ct;
+	cp_update_csym_in_ctype(ct, name, nlen);
+	top = cp_ctstk_get_top();
+	memset(top, 0, sizeof(cp_ctype_entry));
+	top->ct = *ct;
 	if (name)
-		strncpy(ct_stack(cts.top)->name, name, nlen);
-	cts.top++;
+		strncpy(top->name, name, nlen);
+	cp_ctstk_incr_top();
 }
 
 void cp_push_ctype(struct cp_ctype *ct)
@@ -160,23 +120,6 @@ void cp_set_defined(struct cp_ctype *ct)
 
 	/* @TODO: update ctypes and cdatas that were created before the
 	 * definition came in */
-}
-
-void cp_ctype_dump_stack()
-{
-	int i;
-	struct cp_ctype *ct;
-
-	printf("---------------------------\n");
-	printf("start of ctype stack (%d) dump: \n", cts.top);
-	for (i = 0; i < cts.top; i++) {
-		ct = ct_stack_ct(i);
-		printf("[%d] -> cp_ctype: %d, sym_type: %d, pointer: %d "
-			"symbol_id: %d, name: %s\n",
-			i, ct->type,
-			csym_type(ct_ffi_cs(ct)), ct->pointers, ct->ffi_cs_id,
-			ct_stack(i)->name);
-	}
 }
 
 int ctype_reg_table_grow()
@@ -252,19 +195,19 @@ int cp_symbol_build_record(const char *stname, int type, int start_top)
 	csymbol_struct *stcs;
 	struct cp_ctype *ct;
 
-	if (cts.top <= start_top || !stname ||
+	if (cp_ctstk_top() <= start_top || !stname ||
 			(type != STRUCT_TYPE && type != UNION_TYPE)) {
 		cp_error("invalid struct/union definition.\n");
 	}
 
 	id = ctype_lookup_csymbol_id(stname);
 	if (id >= 0) {
-		assert(cp_id_to_csym(id)->type == FFI_STRUCT ||
-				cp_id_to_csym(id)->type == FFI_UNION);
+		assert(csym_type(cp_id_to_csym(id)) == FFI_STRUCT ||
+				csym_type(cp_id_to_csym(id)) == FFI_UNION);
 		assert(csym_struct(cp_id_to_csym(id))->memb_nr == -1);
 	}
 
-	memb_size = cts.top - start_top;
+	memb_size = cp_ctstk_top() - start_top;
 	st_membs = malloc(memb_size*sizeof(struct_member));
 	if (!st_membs)
 		cp_error("failed to allocate memory for struct members.\n");
@@ -282,10 +225,10 @@ int cp_symbol_build_record(const char *stname, int type, int start_top)
 	stcs->members = st_membs;
 
 	for (i = 0; i < memb_size; i++) {
-		cte = ct_stack(i + start_top);
+		cte = cp_ctstk_get(i + start_top);
 		if (cte->name)
 			strcpy(st_membs[i].name, cte->name);
-		ct = ct_stack_ct(i + start_top);
+		ct = cp_ctstk_get_ctype(i + start_top);
 		st_membs[i].id = ct->ffi_cs_id;
 		if (!ct->is_array)
 			st_membs[i].len = -1;
@@ -298,7 +241,7 @@ int cp_symbol_build_record(const char *stname, int type, int start_top)
 	else
 		cs_arr[id] = nst;
 
-	ctype_stack_reset(start_top);
+	cp_ctstk_reset(start_top);
 
 	return id;
 }
@@ -333,9 +276,8 @@ int cp_symbol_build_fake_record(const char *stname, int type)
 	return id;
 }
 
-
-/* build pointer symbol from given csymbol */
-int cp_symbol_build_pointer(struct cp_ctype *ct)
+int cp_symbol_build_pointer_with_name(struct cp_ctype *ct,
+					const char *name, int nlen)
 {
 	int id, ret;
 	csymbol ncspt;
@@ -344,7 +286,13 @@ int cp_symbol_build_pointer(struct cp_ctype *ct)
 	/* TODO: Check correctness of multi-level pointer 24.11.2013(unihorn) */
 	memset(&ncspt, 0, sizeof(csymbol));
 	ncspt.type = FFI_PTR;
-	ret = sprintf(ncspt.name, "%s *", csym_name(ref_cs));
+	/* for function pointer, name is given by caller */
+	if (nlen == 0)
+		ret = sprintf(ncspt.name, "%s *", csym_name(ref_cs));
+	else {
+		strncpy(ncspt.name, name, nlen);
+		ret = nlen;
+	}
 	assert(ret < MAX_TYPE_NAME_LEN);
 
 	csym_set_ptr_deref_id(&ncspt, ct->ffi_cs_id);
@@ -353,12 +301,24 @@ int cp_symbol_build_pointer(struct cp_ctype *ct)
 	return id;
 }
 
+/* build pointer symbol from given csymbol */
+int cp_symbol_build_pointer(struct cp_ctype *ct)
+{
+	return cp_symbol_build_pointer_with_name(ct, NULL, 0);
+}
+
 void __cp_symbol_dump_func(csymbol *cs)
 {
 	int i;
 	csymbol *ncs;
 	csymbol_func *fcs = csym_func(cs);
 
+	if (csym_type(cs) != FFI_FUNC) {
+		printf("cannot a none function symbol!\n");
+		return;
+	}
+
+	fcs = csym_func(cs);
 	printf("=== [%s] function definition =============\n", csym_name(cs));
 	ncs = cp_csymf_ret(fcs);
 	printf("address: %p\n", fcs->addr);
@@ -386,7 +346,7 @@ int cp_symbol_build_func(struct cp_ctype *type, const char *fname, int fn_size)
 	csymbol nfcs;
 	csymbol_func *fcs;
 
-	if (cts.top == 0 || fn_size < 0 || !fname) {
+	if (cp_ctstk_top() == 0 || fn_size < 0 || !fname) {
 		cp_error("invalid function definition.\n");
 	}
 
@@ -408,19 +368,19 @@ int cp_symbol_build_func(struct cp_ctype *type, const char *fname, int fn_size)
 		cp_error("wrong function address for %s\n", csym_name(&nfcs));
 
 	/* bottom of the stack is return type */
-	fcs->ret_id = ct_stack_ct(0)->ffi_cs_id;
+	fcs->ret_id = cp_ctstk_get_ctype(0)->ffi_cs_id;
 
 	/* the rest is argument type */
-	if (cts.top == 1) {
+	if (cp_ctstk_top() == 1) {
 		/* function takes no argument */
 		arg_nr = 0;
 	} else {
-		arg_nr = cts.top - 1;
+		arg_nr = cp_ctstk_top() - 1;
 		argsym_id_arr = malloc(arg_nr * sizeof(int));
 		if (!argsym_id_arr)
 			cp_error("failed to allocate memory for function args.\n");
 		for (i = 0; i < arg_nr; i++) {
-			argsym_id_arr[i] = ct_stack_ct(i+1)->ffi_cs_id;
+			argsym_id_arr[i] = cp_ctstk_get_ctype(i+1)->ffi_cs_id;
 		}
 	}
 	fcs->arg_nr = arg_nr;
@@ -429,9 +389,16 @@ int cp_symbol_build_func(struct cp_ctype *type, const char *fname, int fn_size)
 	id = cp_ctype_reg_csymbol(&nfcs);
 
 	/* clear stack since we have consumed all the ctypes */
-	ctype_stack_reset(0);
+	cp_ctstk_reset(0);
 
 	return id;
+}
+
+/* for function pointer */
+int cp_symbol_build_fptr(struct cp_ctype *ct, const char *fname, int fn_size)
+{
+	ct->ffi_cs_id = cp_symbol_build_func(ct, "", 0);
+	return cp_symbol_build_pointer_with_name(ct, fname, fn_size);
 }
 
 struct cp_ctype *cp_ctype_reg_type(char *name, struct cp_ctype *ct)
@@ -446,6 +413,23 @@ struct cp_ctype *cp_ctype_reg_type(char *name, struct cp_ctype *ct)
 	cte_nr++;
 
 	return &(cte_arr[cte_nr-1].ct);
+}
+
+void __cp_symbol_dump_csym(csymbol *cs)
+{
+	if (csym_type(cs) == FFI_FUNC)
+		__cp_symbol_dump_func(cs);
+	else if (csym_type(cs) == FFI_STRUCT)
+		__cp_symbol_dump_struct(cs);
+	else {
+		printf("=== [%s] ==================\n", csym_name(cs));
+		printf("type: %d\n", csym_type(cs));
+	}
+}
+
+void cp_symbol_dump_csym(int id)
+{
+	__cp_symbol_dump_csym(cp_id_to_csym(id));
 }
 
 #if 0
@@ -582,13 +566,10 @@ cp_csymbol_state *ctype_get_csym_state(void)
 	return &csym_state;
 }
 
-#define DEFAULT_STACK_SIZE 20
 #define DEFAULT_SYM_ARR_SIZE 20
 int cp_ctype_init()
 {
-	cts.size = DEFAULT_STACK_SIZE;
-	cts.top = 0;
-	cts.stack = malloc(sizeof(cp_ctype_entry)*DEFAULT_STACK_SIZE);
+	cp_ctstk_init();
 
 	cs_nr = 0;
 	cs_arr_size = DEFAULT_SYM_ARR_SIZE;
@@ -607,9 +588,6 @@ int cp_ctype_free()
 	int i;
 	csymbol *cs;
 
-	if (cts.stack)
-		free(cts.stack);
-
 	if (cs_arr) {
 		for (i = 0; i < cs_nr; i++) {
 			cs = cp_id_to_csym(i);
@@ -627,6 +605,8 @@ int cp_ctype_free()
 	if (cte_arr) {
 		free(cte_arr);
 	}
+
+	cp_ctstk_free();
 
 	return 0;
 }

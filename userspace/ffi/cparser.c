@@ -1,5 +1,6 @@
 #include <stdarg.h>
-#include "../cparser.h"
+#include "cparser.h"
+#include "ctype_stack.h"
 
 #define IS_CONST(tok) (IS_LITERAL(tok, "const") || IS_LITERAL(tok, "__const") \
 			|| IS_LITERAL(tok, "__const__"))
@@ -104,6 +105,7 @@ void cp_error(const char *err_msg_fmt, ...)
 	vfprintf(stderr, err_msg_fmt, ap);
 	va_end(ap);
 
+	fprintf(stderr, "\n");
 	exit(EXIT_FAILURE);
 }
 
@@ -288,7 +290,8 @@ end:
 static void require_token(struct parser *P, struct token *tok)
 {
 	if (!next_token(P, tok)) {
-		cp_error("unexpected end");
+		cp_error("unexpected end at line [%d]: '%s'",
+				P->line, P->next);
 	}
 }
 
@@ -623,7 +626,7 @@ static int parse_record(struct parser *P, struct cp_ctype *ct)
 		parse_enum(P, ct);
 		cp_set_defined(ct);
 	} else {
-		int start_top = ctype_stack_top();
+		int start_top = cp_ctstk_top();
 		/* we do a two stage parse, where we parse the content first
 		 * and build up the temp user table. We then iterate over that
 		 * to calculate the offsets and fill out ct_usr. This is so we
@@ -1061,8 +1064,11 @@ static struct cp_ctype *parse_function(struct parser *P, struct cp_ctype *ct,
 	 * find_canonical_usr after all the arguments and returns have
 	 * been parsed. */
 	struct token tok;
-	struct cp_ctype *ret = ct;
+	struct cp_ctype *ret_ct = ct;
 
+	cp_ctstk_new_frame();
+
+	/* push return type on stack */
 	cp_push_ctype(ct);
 
 	memset(ct, 0, sizeof(*ct));
@@ -1090,7 +1096,6 @@ static struct cp_ctype *parse_function(struct parser *P, struct cp_ctype *ct,
 				 * itself be a function, a function ptr,
 				 * array, etc (e.g. "void (*signal(int sig,
 				 * void (*func)(int)))(int)" ). */
-				cp_error("TODO: inner function not supported for now.");
 				put_back(P);
 				ct = parse_argument2(P, ct, name, asmname);
 				break;
@@ -1105,13 +1110,23 @@ static struct cp_ctype *parse_function(struct parser *P, struct cp_ctype *ct,
 
 	parse_function_arguments(P, ct);
 
+	/* this push FUNCTION_TYPE or FUNCTION_PTR_TYPE ctype onto stack */
+	if (ct->type == FUNCTION_TYPE) {
+		cp_symbol_build_func(ct, name->str, name->size);
+	} else {
+		/* push FUNCTION_PTR_TYPE to register both function and
+		 * function pointer csymbol */
+		cp_push_ctype_with_name(ct, name->str, name->size);
+	}
+
+	cp_ctstk_pop_frame();
+
 	/*@TODO support for inner function  24.11 2013 (houqp)*/
 	/* if we have an inner function then set the outer function ptr as its
 	 * return type and return the inner function
 	 * e.g. for void (* <signal(int, void (*)(int))> )(int) inner is
 	 * surrounded by <>, return type is void (*)(int) */
-
-	return ret;
+	return ret_ct;
 }
 
 static struct cp_ctype *parse_argument2(struct parser *P, struct cp_ctype *ct,
@@ -1137,7 +1152,6 @@ static struct cp_ctype *parse_argument2(struct parser *P, struct cp_ctype *ct,
 			return 0;
 		} else if (parse_attribute(P, &tok, ct, asmname)) {
 			/* parse attribute has filled out appropriate fields in type */
-
 		} else if (tok.type == TOK_OPEN_PAREN) {
 			ct = parse_function(P, ct, name, asmname);
 		} else if (tok.type == TOK_OPEN_SQUARE) {
@@ -1209,10 +1223,8 @@ static struct cp_ctype *parse_argument2(struct parser *P, struct cp_ctype *ct,
 			/* we've reached the end of the declaration */
 			put_back(P);
 			break;
-
 		} else if (IS_CONST(tok)) {
 			ct->const_mask |= 1;
-
 		} else if (IS_VOLATILE(tok) || IS_RESTRICT(tok)) {
 			/* ignored for now */
 
@@ -1406,10 +1418,8 @@ static int parse_root(struct parser *P)
 
 			for (;;) {
 				parse_argument(P, &type, &name, &asmname);
-
 				if (name.size) {
 					/* global/function declaration */
-					cp_symbol_build_func(&type, name.str, name.size);
 					/* @TODO asmname is not used for now
 					 * since we are not supporting __asm__
 					 * as this point.
@@ -1781,7 +1791,7 @@ void ffi_parse_new(const char *s, struct cp_ctype *ct)
 	cp_init_parser(&P, s);
 	parse_type(&P, ct);
 	parse_argument(&P, ct, NULL, NULL);
-	cp_update_csym_in_ctype(ct);
+	cp_update_csym_in_ctype(ct, NULL, 0);
 }
 
 int ffi_lookup_csymbol_id_by_name(const char *s)
@@ -1791,7 +1801,7 @@ int ffi_lookup_csymbol_id_by_name(const char *s)
 
 	cp_init_parser(&P, s);
 	parse_type(&P, &ct);
-	cp_update_csym_in_ctype(&ct);
+	cp_update_csym_in_ctype(&ct, NULL, 0);
 	return ct.ffi_cs_id;
 }
 

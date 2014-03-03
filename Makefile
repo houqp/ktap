@@ -144,6 +144,8 @@ $(UDIR)/ffi_type.o: $(RUNTIME)/ffi/ffi_type.c $(INC)/* KTAP-CFLAGS
 	$(QUIET_CC)$(CC) $(DEBUGINFO_FLAG) $(KTAPC_CFLAGS) -o $@ -c $<
 $(UDIR)/ffi/cparser.o: $(UDIR)/ffi/cparser.c $(INC)/* KTAP-CFLAGS
 	$(QUIET_CC)$(CC) $(DEBUGINFO_FLAG) $(KTAPC_CFLAGS) -o $@ -c $<
+$(UDIR)/ffi/ctype_stack.o: $(UDIR)/ffi/ctype_stack.c $(INC)/* KTAP-CFLAGS
+	$(QUIET_CC)$(CC) $(DEBUGINFO_FLAG) $(KTAPC_CFLAGS) -o $@ -c $<
 $(UDIR)/ffi/ctype.o: $(UDIR)/ffi/ctype.c $(INC)/* KTAP-CFLAGS
 	$(QUIET_CC)$(CC) $(DEBUGINFO_FLAG) $(KTAPC_CFLAGS) -o $@ -c $<
 endif
@@ -167,6 +169,7 @@ ifdef FFI
 KTAPOBJS += $(UDIR)/ffi_type.o
 KTAPOBJS += $(UDIR)/ffi/cparser.o
 KTAPOBJS += $(UDIR)/ffi/ctype.o
+KTAPOBJS += $(UDIR)/ffi/ctype_stack.o
 endif
 
 ktap: $(KTAPOBJS) KTAP-CFLAGS

@@ -30,7 +30,7 @@
 #include "../include/ktap_types.h"
 #include "../include/ktap_opcodes.h"
 #include "ktapc.h"
-#include "cparser.h"
+#include "ffi/cparser.h"
 
 /* maximum number of local variables per function (must be smaller
    than 250, due to the bytecode format) */

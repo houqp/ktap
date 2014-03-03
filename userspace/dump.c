@@ -29,7 +29,7 @@
 
 #include "../include/ktap_types.h"
 #include "ktapc.h"
-#include "cparser.h"
+#include "ffi/cparser.h"
 
 
 typedef struct {

@@ -42,7 +42,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#include "../include/ktap_ffi.h"
+#include "../../include/ktap_ffi.h"
 
 #define PTR_ALIGN_MASK (sizeof(void*) - 1)
 #define FUNCTION_ALIGN_MASK (sizeof(void (*)()) - 1)
@@ -150,21 +150,25 @@ struct cp_ctype {
 	unsigned is_unsigned : 1;
 };
 
+typedef struct cp_ctype_entry {
+	char name[MAX_TYPE_NAME_LEN];
+	struct cp_ctype ct;
+} cp_ctype_entry;
+
+
 #define ALIGNED_DEFAULT (__alignof__(void* __attribute__((aligned))) - 1)
 
 csymbol *cp_id_to_csym(int id);
 #define ct_ffi_cs(ct) (cp_id_to_csym((ct)->ffi_cs_id))
 
 size_t ctype_size(const struct cp_ctype* ct);
-int ctype_stack_top();
 int cp_ctype_init();
 int cp_ctype_free();
 struct cp_ctype *ctype_lookup_type(char *name);
-void cp_ctype_dump_stack();
 void cp_error(const char *err_msg_fmt, ...);
 struct cp_ctype *cp_ctype_reg_type(char *name, struct cp_ctype *ct);
 
-void cp_update_csym_in_ctype(struct cp_ctype *ct);
+void cp_update_csym_in_ctype(struct cp_ctype *ct, const char *name, int nlen);
 void cp_push_ctype_with_name(struct cp_ctype *ct, const char *name, int nlen);
 void cp_push_ctype(struct cp_ctype *ct);
 void cp_set_defined(struct cp_ctype *ct);
@@ -173,6 +177,7 @@ int cp_symbol_build_func(struct cp_ctype *type, const char *fname, int fn_size);
 int cp_symbol_build_record(const char *stname, int type, int start_top);
 int cp_symbol_build_fake_record(const char *stname, int type);
 int cp_symbol_build_pointer(struct cp_ctype *ct);
+int cp_symbol_build_fptr(struct cp_ctype *ct, const char *fname, int fn_size);
 
 int ffi_parse_cdef(const char *s);
 void ffi_parse_new(const char *s, struct cp_ctype *ct);

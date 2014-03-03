@@ -37,7 +37,7 @@
 #include "../include/ktap_types.h"
 #include "ktapc.h"
 #include "symbol.h"
-#include "cparser.h"
+#include "ffi/cparser.h"
 
 static void usage(const char *msg_fmt, ...)
 {

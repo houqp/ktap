@@ -7,6 +7,7 @@
 #include "ktap_opcodes.h"
 #include "../../userspace/ktapc.h"
 #include "cparser.h"
+#include "ctype_stack.h"
 
 void ffi_cparser_init(void);
 void ffi_cparser_free(void);
