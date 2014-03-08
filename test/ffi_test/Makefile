@@ -35,9 +35,11 @@ load:
 unload:
 	rmmod ktap_ffi_test
 
-test: all
+test_cparser: all
 	@echo "testing cparser:"
 	./cparser_test
+
+test: all test_cparser
 	@echo "testing ffi module:"
 	rmmod ktap_ffi_test > /dev/null 2>&1 || true
 	insmod ktap_ffi_test.ko
