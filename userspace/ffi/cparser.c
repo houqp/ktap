@@ -92,6 +92,8 @@ static char tok1[] = {
 	'>', '^', '|', '?', '#'
 };
 
+/* counter for unnamed types's name */
+static int unnamed_counter = 0;
 
 /* this function never returns, but it's an idiom to use it in C functions
  * as return cp_error */
@@ -596,7 +598,7 @@ static int parse_record(struct parser *P, struct cp_ctype *ct)
 	} else {
 		char anon_name[MAX_TYPE_NAME_LEN];
 		/* create a new unnamed record */
-		sprintf(anon_name, "%d line", P->line);
+		sprintf(anon_name, "%d", unnamed_counter++);
 		set_type_name(cur_type_name, ct->type,
 				anon_name, strlen(anon_name));
 		ct->ffi_base_cs_id = ct->ffi_cs_id = -1;
