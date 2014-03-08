@@ -381,6 +381,39 @@ int test_function_pointer_as_member()
 	return 0;
 }
 
+/* this test should force ctype_stack to grow it's size */
+int test_large_struct()
+{
+	int memb_nr, i, idx;
+	char *st_def, *ptr;
+	csymbol_struct *stcs;
+
+	memb_nr = cp_ctstk_free_space()+2;
+
+#define ST_STR_PREFIX "struct large_test_st {"
+#define ST_STR_MEMB "int a;"
+#define ST_STR_POSTFIX "};"
+	st_def = malloc(strlen(ST_STR_PREFIX)
+			+memb_nr*strlen(ST_STR_MEMB)
+			+strlen(ST_STR_POSTFIX));
+	ptr = st_def;
+	strcpy(ptr, ST_STR_PREFIX);
+	ptr += strlen(ST_STR_PREFIX);
+	for (i = 0; i < memb_nr; i++, ptr+=strlen(ST_STR_MEMB))
+		strcpy(ptr, ST_STR_MEMB);
+	strcpy(ptr, ST_STR_POSTFIX);
+
+	ffi_parse_cdef(st_def);
+	idx = lookup_csymbol_id_by_name("struct large_test_st");
+	stcs = csym_struct(cp_id_to_csym(idx));
+
+	assert(csymst_mb_nr(stcs) == memb_nr);
+
+	free(st_def);
+
+	return 0;
+}
+
 int main (int argc, char *argv[])
 {
 	DO_TEST(func_sched_clock);
@@ -391,5 +424,6 @@ int main (int argc, char *argv[])
 	DO_TEST(var_arg_function);
 	DO_TEST(function_pointer);
 	DO_TEST(function_pointer_as_member);
+	DO_TEST(large_struct);
 	return 0;
 }
